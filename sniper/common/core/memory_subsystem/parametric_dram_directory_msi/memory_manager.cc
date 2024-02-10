@@ -22,7 +22,6 @@
 #include "utopia.h"
 #include "pwc.h"
 #include "hashtable_baseline.h"
-#include "thread.h"
 
 #include <algorithm>
 
@@ -62,14 +61,11 @@ MemoryManager::MemoryManager(Core* core,
    m_tlb_l1_cache_access(NULL,0),
    m_tlb_l2_cache_access(NULL,0),
    m_tlb_nuca_cache_access(NULL,0),
-   scaling_factor(0),
    pwc_access_latency(NULL, 0),
    pwc_miss_latency(NULL, 0),
    shadow_cache_hit_latency(NULL,0),
    shadow_cache_miss_latency(NULL,0),
-   tlb_caching(false),
-   potm_latency(NULL,0),
-   migration_latency(NULL,0)
+   tlb_caching(false)
 
 {
    // Read Parameters from the Config file
@@ -99,11 +95,13 @@ MemoryManager::MemoryManager(Core* core,
 
       m_last_level_cache = (MemComponent::component_t)(Sim()->getCfg()->getInt("perf_model/cache/levels") - 2 + MemComponent::L2_CACHE);
       m_system_page_size = Sim()->getCfg()->getInt("perf_model/tlb/pagesize");
-   
+      scaling_factor = Sim()->getCfg()->getInt("perf_model/address_scaling/scaling_factor");
+      address_scaling_enabled = Sim()->getCfg()->getBool("perf_model/address_scaling/enabled");
+
 
       int number_of_page_sizes = Sim()->getCfg()->getInt("perf_model/tlb/page_sizes");
       int* page_size_list;
-      
+
       page_size_list = (int *) malloc (sizeof(int)*(number_of_page_sizes));
       std::cout << "Supporting " << number_of_page_sizes << "page sizes: ";
 
@@ -204,8 +202,6 @@ MemoryManager::MemoryManager(Core* core,
       registerStatsMetric("mmu", core->getId(), "llc_hit_and_l2tlb_miss", &translation_stats.llc_hit_l2tlb_miss);
       registerStatsMetric("mmu", core->getId(), "ptw_contention",  &translation_stats.ptw_contention);
 
-      registerStatsMetric("mmu", core->getId(), "migrations_requests",  &translation_stats.migrations_affected_request);
-      registerStatsMetric("mmu", core->getId(), "migrations_delay",  &translation_stats.migrations_affected_latency);
 
 
       for (int i = HitWhere::WHERE_FIRST; i < HitWhere::NUM_HITWHERES; i++)
@@ -230,17 +226,16 @@ MemoryManager::MemoryManager(Core* core,
       parallel_ptw = Sim()->getCfg()->getInt("perf_model/ptw/parallel");
       m_potm_enabled = Sim()->getCfg()->getBool("perf_model/tlb/potm_enabled");
       m_virtualized = Sim()->getCfg()->getBool("perf_model/ptw/virtualized");
-      m_parallel_walk = Sim()->getCfg()->getBool("perf_model/ptw/parallel_walk");
       ptw_srs = new ContentionModel("ptw.mshr", getCore()->getId(), parallel_ptw);
       
 
      m_tlb_l1_cache_access =  ComponentLatency(core->getDvfsDomain(), Sim()->getCfg()->getInt("perf_model/l1_dcache/data_access_time"));;
      m_tlb_l2_cache_access = ComponentLatency(core->getDvfsDomain(), Sim()->getCfg()->getInt("perf_model/l2_cache/data_access_time"));
      m_tlb_nuca_cache_access = ComponentLatency(core->getDvfsDomain(), Sim()->getCfg()->getInt("perf_model/nuca/data_access_time"));
-     potm_latency = ComponentLatency(core->getDvfsDomain(), Sim()->getCfg()->getInt("perf_model/potm_tlb/latency"));
-     migration_latency = ComponentLatency(core->getDvfsDomain(), Sim()->getCfg()->getInt("perf_model/utopia/migration_latency"));
 
-      std::cout << "POTM Latency: " << Sim()->getCfg()->getInt("perf_model/potm_tlb/latency") << std::endl;
+     std::cout << "latency = "  << m_tlb_l1_cache_access.getLatency() << std::endl;
+     std::cout << "latency = "  << m_tlb_l2_cache_access.getLatency() << std::endl;
+     std::cout << "latency = " << m_tlb_nuca_cache_access.getLatency() << std::endl;
 
       if(m_pwc_enabled){
 
@@ -444,9 +439,6 @@ MemoryManager::MemoryManager(Core* core,
 
       m_rlb_enabled = Sim()->getCfg()->getBool("perf_model/rlb/enabled");
       String rlb_policy = Sim()->getCfg()->getString("perf_model/rlb/policy");
-      //m_va_reader = new vaAreaReader();
-      //std::cout << "Executing application with PID = " << getCore()->getThread()->getId() << std::endl;
-
 
       if(m_rlb_enabled){
 
@@ -829,7 +821,7 @@ MemoryManager::~MemoryManager()
 HitWhere::where_t
 MemoryManager::coreInitiateMemoryAccess(
       IntPtr eip,
-      MemComponent::component_t mem_component, 
+      MemComponent::component_t mem_component,
       Core::lock_signal_t lock_signal,
       Core::mem_op_t mem_op_type,
       IntPtr address, UInt32 offset,
@@ -856,9 +848,28 @@ MemoryManager::coreInitiateMemoryAccess(
             m_utr_4KB->track_utilization();
          }
       }
+
+
+   IntPtr scaledAddr;
+
+   if(address_scaling_enabled && mem_component == MemComponent::L1_ICACHE)
+   {
+      scaledAddr = address;
+   }
+
+   else if(address_scaling_enabled && (mem_component != MemComponent::L1_ICACHE))
+   {
+      scaledAddr = getScaledAddress(address+offset, scaling_factor);
+   }
+
+   else if(!address_scaling_enabled)
+   {
+      scaledAddr = address;
+   }
    
 
    TranslationResult tr_result;
+
 
    if(!oracle_translation_enabled)
    {  
@@ -866,7 +877,7 @@ MemoryManager::coreInitiateMemoryAccess(
       tr_result = performAddressTranslation(eip, mem_component, 
                                  lock_signal, 
                                  mem_op_type, 
-                                 address, 
+                                 scaledAddr, 
                                  data_buf, 
                                  data_length, 
                                  modeled == Core::MEM_MODELED_NONE || modeled == Core::MEM_MODELED_COUNT ? false : true,
@@ -875,7 +886,7 @@ MemoryManager::coreInitiateMemoryAccess(
    
    if(!oracle_protection_enabled){
       if(modrian_memory_enabled){
-         mmm->init_walk(eip, address, m_cache_cntlrs[MemComponent::L1_DCACHE] , lock_signal, data_buf, data_length, modeled == Core::MEM_MODELED_NONE || modeled == Core::MEM_MODELED_COUNT ? false : true,modeled == Core::MEM_MODELED_NONE ? false : true);
+         mmm->init_walk(eip, scaledAddr, m_cache_cntlrs[MemComponent::L1_DCACHE] , lock_signal, data_buf, data_length, modeled == Core::MEM_MODELED_NONE || modeled == Core::MEM_MODELED_COUNT ? false : true,modeled == Core::MEM_MODELED_NONE ? false : true);
       }
 
 
@@ -884,34 +895,18 @@ MemoryManager::coreInitiateMemoryAccess(
    if(!oracle_expressive_enabled){
 
       if(xmem_enabled){
-         xmem_manager->init_walk(eip, address, m_cache_cntlrs[MemComponent::L1_DCACHE] , lock_signal, data_buf, data_length, modeled == Core::MEM_MODELED_NONE || modeled == Core::MEM_MODELED_COUNT ? false : true,modeled == Core::MEM_MODELED_NONE ? false : true);
+         xmem_manager->init_walk(eip, scaledAddr, m_cache_cntlrs[MemComponent::L1_DCACHE] , lock_signal, data_buf, data_length, modeled == Core::MEM_MODELED_NONE || modeled == Core::MEM_MODELED_COUNT ? false : true,modeled == Core::MEM_MODELED_NONE ? false : true);
       }
       
    }
-
-   if(m_utopia_enabled){
-      Utopia* utopia = Sim()->getUtopia();    
-      std::unordered_map<IntPtr,SubsecondTime> *map;
-      map = (utopia->getMigrationMap());         
-      if(map->find(address >> 12) != map->end()){
-         if(map->at(address>>12) > getShmemPerfModel()->getElapsedTime(ShmemPerfModel::_USER_THREAD) ){
-            SubsecondTime delay = map->at(address>>12) - getShmemPerfModel()->getElapsedTime(ShmemPerfModel::_USER_THREAD);
-            tr_result.latency+=delay;
-            translation_stats.migrations_affected_request++;
-            translation_stats.migrations_affected_latency+=delay;
-            map->erase(address>>12);
-         }
-         else{
-            map->erase(address>>12);
-         }
-      }
-   }
+   //std::cout<<"Translation latency for address "<<address<<" : "<<translation_latency<<"\n";
+   //std::cout << "Finished translation\n";
 
    HitWhere::where_t result =m_cache_cntlrs[mem_component]->processMemOpFromCore(
          eip,
          lock_signal,
          mem_op_type,
-         address, offset,
+         scaledAddr, offset,
          data_buf, data_length,
          modeled == Core::MEM_MODELED_NONE || modeled == Core::MEM_MODELED_COUNT ? false : true,
          modeled == Core::MEM_MODELED_NONE ? false : true, CacheBlockInfo::block_type_t::NON_PAGE_TABLE, tr_result.latency, shadow_cache);
@@ -959,7 +954,7 @@ TranslationResult MemoryManager::performAddressTranslation(
             if (mem_component == MemComponent::L1_ICACHE && m_itlb){
                
                   tlb_result = accessTLBSubsystem(eip, m_itlb, address, true,  modeled, count, lock_signal, data_buf, data_length);
-                  total_translation_latency = tlb_result.latency; 
+                  total_translation_latency+=tlb_result.latency; 
             }
             else if (mem_component == MemComponent::L1_DCACHE && m_dtlb)
                   tlb_result = accessTLBSubsystem(eip, m_dtlb, address, false, modeled, count, lock_signal, data_buf, data_length); // TLBSubsystem latency in tlb_hit_location
@@ -967,17 +962,15 @@ TranslationResult MemoryManager::performAddressTranslation(
 
             if(m_utopia_enabled && (!m_virtualized) && mem_component == MemComponent::L1_DCACHE)
             {
+                  utopia_result = accessUtopiaSubsystem(eip, lock_signal, address, data_buf, data_length, modeled, count);
 
                   if(tlb_result.hitwhere == TranslationHitWhere::UTR_HIT){ // Take into account only Utopia-latency
-                     utopia_result = accessUtopiaSubsystem(eip, lock_signal, address, data_buf, data_length, modeled, count);
+                     
                     // getShmemPerfModel()->setElapsedTime(ShmemPerfModel::_USER_THREAD, t_begin + utopia_result.latency); 
                      translation_stats.utr_hit++;
-                     translation_stats.utr_hit_latency += utopia_result.latency;  
-                     total_translation_latency = utopia_result.latency;
-                     if(Sim()->getUtopia()->getSerialL2TLB() && utopia_result.hitwhere!=TranslationHitWhere::ULB_HIT){
-                        translation_stats.utr_hit_latency +=m_tlb_l2_access_penalty.getLatency();
-                        total_translation_latency+=m_tlb_l2_access_penalty.getLatency();
-                     }
+                     translation_stats.utr_hit_latency += utopia_result.latency;      UInt32 m_num_outstanding;
+
+                     
                   }  
                   else if(tlb_result.hitwhere == TranslationHitWhere::TLB_HIT_L1){ //Take into account only TLB latency
 
@@ -998,20 +991,20 @@ TranslationResult MemoryManager::performAddressTranslation(
                      total_translation_latency = tlb_result.latency; 
 
                   }           
-                  else if(tlb_result.hitwhere == TranslationHitWhere::TLB_MISS && tlb_result.hitwhere != TranslationHitWhere::UTR_HIT){ // TLB Miss needs to wait for UTR miss 
-                     utopia_result = accessUtopiaSubsystem(eip, lock_signal, address, data_buf, data_length, modeled, count);
+                  else if(tlb_result.hitwhere == TranslationHitWhere::TLB_MISS && utopia_result.hitwhere == TranslationHitWhere::UTR_MISS){ // TLB Miss needs to wait for UTR miss 
+                  
                      if(utopia_result.latency > tlb_result.latency) tlb_result.latency += utopia_result.latency - tlb_result.latency;
-                     
+                   //  getShmemPerfModel()->setElapsedTime(ShmemPerfModel::_USER_THREAD, t_begin + tlb_result.latency); 
                      translation_stats.tlb_and_utr_miss++;
                      translation_stats.tlb_and_utr_miss_latency += tlb_result.latency;
-                     total_translation_latency = tlb_result.latency; 
+                     total_translation_latency = tlb_result.latency + utopia_result.latency; 
 
                   }
 
             }
             else if (mem_component == MemComponent::L1_DCACHE) // Utopia is disabled, take into account only tlb latency
             {
-                     total_translation_latency = tlb_result.latency; 
+                     total_translation_latency+=tlb_result.latency; 
             	      assert(!m_utopia_enabled);
 	    
 	         }
@@ -1022,7 +1015,7 @@ TranslationResult MemoryManager::performAddressTranslation(
 
    TranslationResult result;
    result.hitwhere = tlb_result.hitwhere;
-   result.latency = total_translation_latency;
+   result.latency = tlb_result.latency;
    return result;
 
 }
@@ -1061,17 +1054,13 @@ TranslationResult MemoryManager::accessTLBSubsystem(IntPtr eip, TLB * tlb, IntPt
 
               result.hitwhere = TranslationHitWhere::TLB_MISS;
 
-             if(m_utopia_enabled) //If Utopia is not serialized - then ptw is also parallel with L2 TLB 
-               result.latency = ptw_latency + m_tlb_l1_access_penalty.getLatency(); 
-              else if(m_potm_enabled && (Sim()->getCfg()->getInt("perf_model/potm_tlb/latency")) > 0) //if POM-TLB Latency is static: acts like L3 TLB
-               result.latency = ptw_latency + m_tlb_l1_access_penalty.getLatency() + m_tlb_l2_access_penalty.getLatency();
-              else if(m_potm_enabled) //if POM-TLB latency is not static: act as software TLB
-               result.latency = ptw_latency + m_tlb_l1_access_penalty.getLatency() + m_tlb_l2_access_penalty.getLatency()+m_stlb->getPOTMlookupTime();
-              else if (m_parallel_walk)
-               result.latency = ptw_latency + m_tlb_l1_access_penalty.getLatency();
-              else if(!(m_parallel_walk)){
-               result.latency = ptw_latency + m_tlb_l1_access_penalty.getLatency() +m_tlb_l2_access_penalty.getLatency();
-              }
+              if(m_utopia_enabled)
+               result.latency = ptw_latency;
+              else if(m_potm_enabled)
+               result.latency = ptw_latency + m_tlb_l1_miss_penalty.getLatency() + m_tlb_l2_miss_penalty.getLatency()+ ptw_contention_latency+m_stlb->getPOTMlookupTime();
+              else
+               result.latency = ptw_latency + m_tlb_l1_miss_penalty.getLatency() + m_tlb_l2_miss_penalty.getLatency() + ptw_contention_latency;
+
               return result;
           }
           else{
@@ -1090,18 +1079,13 @@ TranslationResult MemoryManager::accessTLBSubsystem(IntPtr eip, TLB * tlb, IntPt
          result.hitwhere = TranslationHitWhere::TLB_HIT_L1;
       }
       if(hit == TLB::where_t::L2){
-         result.latency = m_tlb_l1_access_penalty.getLatency() + m_tlb_l2_access_penalty.getLatency();
+         result.latency = m_tlb_l1_miss_penalty.getLatency() + m_tlb_l2_access_penalty.getLatency();
          translation_stats.tlb_hit_l2_latency += result.latency;
          result.hitwhere = TranslationHitWhere::TLB_HIT_L2;
 
       }
       if(hit == TLB::where_t::POTM){
-         if( Sim()->getCfg()->getInt("perf_model/potm_tlb/latency") > 0 ){
-            result.latency = m_tlb_l1_access_penalty.getLatency() + m_tlb_l2_access_penalty.getLatency()+potm_latency.getLatency();
-         }
-         else 
-            result.latency = m_tlb_l1_access_penalty.getLatency() + m_tlb_l2_access_penalty.getLatency()+m_stlb->getPOTMlookupTime() ;
-
+         result.latency = m_tlb_l1_access_penalty.getLatency() + m_tlb_l2_access_penalty.getLatency()+ m_stlb->getPOTMlookupTime();
          result.hitwhere = TranslationHitWhere::TLB_POTM_HIT;
       }
       if(hit == TLB::where_t::L1_CACHE){
@@ -1173,7 +1157,7 @@ TranslationResult MemoryManager::accessUtopiaSubsystem(
 
          utopia_walk_skip = true; // Access ULB and the Utopia Walk is skipped
          utopia_result.latency = ulb->access_latency.getLatency();
-         utopia_result.hitwhere = TranslationHitWhere::ULB_HIT;
+
          return utopia_result;
       }
       else{
@@ -1532,4 +1516,3 @@ MemoryManager::measureNucaStats()
 }
 
 }
-  

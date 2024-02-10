@@ -1,0 +1,29 @@
+[SNIPER] Warning: Unable to use physical addresses for shared memory simulation.
+Config file: /users/deepmish/AddressScaling/sniper/config/gainestown.cfg
+Config file: /users/deepmish/AddressScaling/sniper/config/nehalem.cfg
+[SNIPER] Running ['/users/deepmish/AddressScaling/sniper/record-trace', '-o', '/tmp/tmpIQ4SAN/run_benchmarks', '-v', '-e', '1', '-s', '0', '-r', '1', '--follow', '--routine-tracing', '--', '/bin/ls']
+[SNIPER] Start here
+True
+[SNIPER] Running ['bash', '-c', '/users/deepmish/AddressScaling/sniper/lib/sniper -c /users/deepmish/AddressScaling/sniper/config/base.cfg --general/total_cores=1 --general/output_dir=/users/deepmish/AddressScaling/sniper --config=/users/deepmish/AddressScaling/sniper/config/nehalem.cfg --config=/users/deepmish/AddressScaling/sniper/config/gainestown.cfg -g --traceinput/stop_with_first_app=true -g --traceinput/restart_apps=false -g --traceinput/stop_with_first_app=false -g --traceinput/enabled=true -g --traceinput/emulate_syscalls=true -g --traceinput/num_apps=1 -g --traceinput/trace_prefix=/tmp/tmpIQ4SAN/run_benchmarks']
+Starting simLet's load config
+config_path
+Allocating Simulator
+Hello from simulator's constructor
+Hello from simulator
+
+CHANGELOG COMPILATION CONTRIBUTORS Doxyfile LICENSE LICENSE.interval Makefile Makefile.config NOTICE README README.riscv benchmarks common config decoder_lib docker file frontend include lib mbuild mcpat pin pin_kit pmem python_kit record-trace riscv run-sniper scripts sift sim.stats.sqlite3 sim.stdout standalone test tools vars.sh wrapper.sh wrapper_trace.sh xed xed_kit Configuration error CHANGELOG COMPILATION CONTRIBUTORS Doxyfile LICENSE LICENSE.interval Makefile Makefile.config NOTICE README README.riscv benchmarks common config decoder_lib docker file frontend include lib mbuild mcpat pin pin_kit pmem python_kit record-trace riscv run-sniper scripts sift sim.stats.sqlite3 sim.stdout standalone test tools vars.sh wrapper.sh wrapper_trace.sh xed xed_kit
+Configuration value perf_model/utopia/enabled not found.
+
+<subprocess.Popen object at 0x7f6abe8fd6d0>
+71034 0
+inside nested try
+inside try
+0
+[SNIPER] End
+[SNIPER] Elapsed time: 0.12 seconds
+[RECORD-TRACE] Using the Pin frontend (sift/recorder)
+[SIFT_RECORDER] Running /users/deepmish/AddressScaling/sniper/pin_kit/pin -mt -injection child -xyzzy -ifeellucky -follow_execv -t /users/deepmish/AddressScaling/sniper/sift/recorder/obj-intel64/sift_recorder -verbose 1 -debug 0 -roi 0 -roi-mpi 0 -f 0 -d 0 -b 0 -o /tmp/tmpIQ4SAN/run_benchmarks -e 1 -s 0 -r 1 -pa 0 -rtntrace 1 -stop 0 -- /bin/ls
+Opening output for thread: 0
+[SIFT_RECORDER:0:0] Output = [/tmp/tmpIQ4SAN/run_benchmarks.app0.th0.sift]
+[SIFT_RECORDER:0:0] Response = [/tmp/tmpIQ4SAN/run_benchmarks_response.app0.th0.sift]
+[SIFT_RECORDER:0:0] Error: Unable to open the output file /tmp/tmpIQ4SAN/run_benchmarks.app0.th0.sift

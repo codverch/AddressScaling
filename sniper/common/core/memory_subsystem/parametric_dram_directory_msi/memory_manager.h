@@ -23,7 +23,7 @@
 #include "modrian_memory.h"
 #include "pagetable_walker_xmem.h"
 #include "contention_model.h"
-#include "va_area_reader.h"
+
 
 
 #include <map>
@@ -39,9 +39,8 @@ namespace ParametricDramDirectoryMSI
    typedef std::map<CoreComponentType, CacheCntlr*> CacheCntlrMap;
 
    enum TranslationHitWhere{
-            UTR_HIT = 0,
+            UTR_HIT = 0 ,
             UTR_MISS,
-            ULB_HIT,
             TLB_HIT_L1,
             TLB_HIT_L2,
             TLB_POTM_HIT,
@@ -75,6 +74,9 @@ namespace ParametricDramDirectoryMSI
 
          RLB *m_rlb;
 
+         bool address_scaling_enabled;
+         int scaling_factor;
+
 
 	      UInt64 m_system_page_size;
 
@@ -89,9 +91,8 @@ namespace ParametricDramDirectoryMSI
 
          ComponentLatency m_tlb_l1_miss_penalty;
          ComponentLatency m_tlb_l2_miss_penalty;
-         ComponentLatency potm_latency;
-         ComponentLatency migration_latency;
 
+         
          bool m_utopia_enabled;
          bool m_ulb_enabled;
          bool m_utopia_permission_enabled;
@@ -99,13 +100,10 @@ namespace ParametricDramDirectoryMSI
          bool m_potm_enabled;
          bool m_virtualized;
 
-         bool m_parallel_walk;
-
          
          UtopiaCache *utopia_perm_cache;
          UtopiaCache *utopia_tag_cache;
          ULB* ulb;
-         std::unordered_map<IntPtr, SubsecondTime> migration_map; // Track migrated pages
          UtopiaCache* shadow_cache;
          bool shadow_cache_enabled;
 
@@ -153,9 +151,6 @@ namespace ParametricDramDirectoryMSI
 
            SubsecondTime ptw_contention;
 
-           SubsecondTime migrations_affected_latency;
-           UInt64 migrations_affected_request;
-
 
          } translation_stats;
          
@@ -192,9 +187,6 @@ namespace ParametricDramDirectoryMSI
          bool oracle_expressive_enabled;
          bool m_rlb_enabled;
 
-         //Address scaling 
-         int scaling_factor;
-
          ComponentLatency m_tlb_l1_cache_access;
          ComponentLatency m_tlb_l2_cache_access; 
          ComponentLatency m_tlb_nuca_cache_access;
@@ -225,6 +217,26 @@ namespace ParametricDramDirectoryMSI
          ~MemoryManager();
 
          UInt64 getCacheBlockSize() const { return m_cache_block_size; }
+
+         IntPtr getScaledAddress(IntPtr virtAddr, int scaling_factor)
+         {
+            IntPtr baseAddr = 0;
+
+            int subCacheLineSize = m_cache_block_size - (scaling_factor * 8);
+            int offsetInCacheLine = (virtAddr - baseAddr) % subCacheLineSize;
+
+            // Compute the scaled address
+            IntPtr scaledAddr = baseAddr + (floor((virtAddr - baseAddr) / subCacheLineSize) * m_cache_block_size) + offsetInCacheLine;
+            scaledAddr = floor(scaledAddr / m_cache_block_size) * m_cache_block_size;
+
+
+            return scaledAddr;
+
+         }
+
+
+
+
 
          Cache* getCache(MemComponent::component_t mem_component) {
               return m_cache_cntlrs[mem_component == MemComponent::LAST_LEVEL_CACHE ? MemComponent::component_t(m_last_level_cache) : mem_component]->getCache();

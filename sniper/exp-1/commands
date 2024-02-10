@@ -1,0 +1,2 @@
+./run-sniper -c config/virtual_memory_configs/address_scaling_56_bytes.cfg  -g --perf_model/address_scaling/scaling_factor=2 --roi --genstats -d microbenchmarks/ascaling/results/ -- microbenchmarks/
+./run-sniper -c config/virtual_memory_configs/address_scaling_off_bytes.cfg  --roi --genstats -d /users/deepmish/AddressScaling/sniper/exp-1/baseline/results/ -- /users/deepmish/AddressScaling/sniper/exp-1/baseline/baseline
