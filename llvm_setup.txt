@@ -1,0 +1,30 @@
+git clone https://github.com/llvm/llvm-project.git
+cd llvm-project
+cmake -S llvm -B build -G Ninja -DLLVM_ENABLE_PROJECTS="clang" -DCMAKE_BUILD_TYPE=Release
+sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+sudo apt-get update
+sudo apt-get install gcc-10 g++-10 -y
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 20
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 20
+sudo update-alternatives --config gcc
+sudo update-alternatives --config g++
+export PATH=/path/to/gcc-10.5/bin:$PATH
+
+rm -rf build
+cmake -S llvm -B build -G Ninja -DLLVM_ENABLE_PROJECTS="clang" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_COMPILER=g++-10
+
+ninja -C build
+ninja -C build check-all
+ninja -C build check-llvm
+ninja -C build check-clang
+ninja -C build install
+export PATH=~/llvm-project/build/bin:$PATH
+~/llvm-project/build/bin/clang hello.c -o hello
+~/llvm-project/build/bin/clang -fsanitize=address test.c -o hello_asan
+
+
+rm -rf build
+mkdir build
+cd build
+cmake -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_USE_SANITIZER=Address -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_COMPILER=g++-10 -G Ninja ../llvm
+ninja
